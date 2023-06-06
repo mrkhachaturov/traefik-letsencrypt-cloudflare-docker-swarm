@@ -37,11 +37,11 @@ ping:
 
 log:
   level: DEBUG                                 # (Default: error) DEBUG, INFO, WARN, ERROR, FATAL, PANIC
-  filePath: "/etc/traefik/traefik.log"        # Log file path
+  filePath: "/etc/traefik/logs/traefik.log"        # Log file path
   format: common                              # Log format
 
 accessLog:                                    # The 'accessLog' section configures logging of incoming HTTP requests in Traefik.
-  filePath: "/etc/traefik/access.log"         # Log file path
+  filePath: "/etc/traefik/logs/access.log"         # Log file path
   bufferingSize: 100                          # Configuring a buffer of 100 lines
   filters:                                    # 'filters' allow you to exclude certain requests from the access log. In this case, the 'statusCodes' filter excludes requests that return HTTP status codes in the ranges 204-299, 400-499, and 500-599.
     statusCodes:
