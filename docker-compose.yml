@@ -69,7 +69,7 @@ services:
         
         ## HTTP Routers
         - "traefik.http.routers.traefik-rtr.entrypoints=https"
-        - "traefik.http.routers.traefik-rtr.rule=Host(`traefik.astrateam.net`)"
+        - "traefik.http.routers.traefik-rtr.rule=Host(`traefik.domain.net`)"                     # Domainname
         - "traefik.http.routers.traefik-rtr.tls=true" # Some people had 404s without this        # HTTP Services
         
         ## Services - API
