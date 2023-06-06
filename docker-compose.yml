@@ -1,0 +1,122 @@
+version: "3.9"
+
+networks:
+  t2_proxy:
+    external: true
+    attachable: true
+  socket_proxy:
+    external: true
+    attachable: true
+
+secrets:
+  cf_email:
+    external: true
+  cf_api_key:
+    external: true
+  htpasswd:
+    external: true
+
+configs:
+  traefik-static.yml:
+    external: true
+  traefik-dynamic.yml:
+    external: true
+
+
+
+services:
+  traefik:
+    # Published on https://hub.docker.com/_/traefik?tab=tags
+    image: traefik:2.9     # See https://github.com/containous/traefik/releases
+    
+    healthcheck:
+      test: ["CMD", "wget", "http://localhost:8082/ping","--spider"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 5s
+    
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        delay: 15s
+        parallelism: 1
+        monitor: 10s
+        failure_action: rollback
+        max_failure_ratio: 0.55
+      # Container resources (replace with yours)
+      resources:
+        limits:
+          cpus: '0.35'
+          memory: 256M
+        reservations:
+          cpus: '0.15'
+          memory: 128M
+      
+      labels:
+        # Enable traefik for this service, to make it available in the public network
+        - "traefik.enable=true"
+       
+        ## HTTP-to-HTTPS Redirect
+        - "traefik.http.routers.http-catchall.entrypoints=http"
+        - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+        - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+        - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+        
+        ## HTTP Routers
+        - "traefik.http.routers.traefik-rtr.entrypoints=https"
+        - "traefik.http.routers.traefik-rtr.rule=Host(`traefik.astrateam.net`)"
+        - "traefik.http.routers.traefik-rtr.tls=true" # Some people had 404s without this        # HTTP Services
+        
+        ## Services - API
+        - "traefik.http.services.traefik-rtr.loadbalancer.server.port=8080"
+        - "traefik.http.services.traefik-rtr.loadbalancer.passhostheader=true"
+        - "traefik.http.routers.traefik-rtr.service=api@internal"
+        
+        ## Middlewares
+        - "traefik.http.routers.traefik-rtr.middlewares=traefikAuth@file,default-crowdsec@file" # For Basic Authentication with Crowdsec
+        #- "traefik.http.routers.traefik-rtr.middlewares=default@file" # For No Authentication
+        #- "traefik.http.routers.traefik-rtr.middlewares=traefikAuth@file@file,default@file" # For Basic HTTP Authentication
+        #- "traefik.http.routers.traefik-rtr.middlewares=oauth@file,default-crowdsec@file" # For Google OAuth
+        #- "traefik.http.routers.traefik-rtr.middlewares=authelia@file,default-crowdsec@file" # For Authelia Authentication    
+     
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Use Docker Socket Proxy instead for improved security
+      - /mnt/docker/traefik2/acme/acme.json:/etc/traefik/acme/acme.json # cert location - you must create this emtpy file and change permissions to 600
+      - /mnt/docker/traefik2/logs:/etc/traefik/logs # for fail2ban or crowdsec
+       
+    networks:
+      - t2_proxy
+      - socket_prox
+
+    ports:
+      # To be able to listen on port 80 (http)
+      - mode: host
+        published: 80
+        target: 80
+      # To be able to listen on port 443 (https)
+      - mode: host
+        published: 443
+        target: 443    
+    
+    secrets:
+      - cf_email
+      - cf_api_key
+      - htpasswd
+
+    environment:
+      - TZ=Europe/Moscow
+      - CF_API_EMAIL_FILE=/run/secrets/cf_email # Cloudflare email
+      - CF_API_KEY_FILE=/run/secrets/cf_api_key # Cloudflare Global Api Key 
+      - HTPASSWD_FILE=/run/secrets/htpasswd # HTPASSWD_FILE can be whatever as it is not used/called anywhere.
+    
+
+    configs:
+      - source: traefik-static.yml
+        target: /etc/traefik/traefik.yml
+      - source: traefik-dynamic.yml
+        target: /etc/traefik/config.yml  
