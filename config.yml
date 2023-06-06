@@ -1,0 +1,185 @@
+# Traefik dynamic configuration file
+# See https://doc.traefik.io/traefik/getting-started/configuration-overview/#the-dynamic-configuration
+
+################################ Authorization ################################
+http:
+  middlewares:
+    # A basic authentication middleware, to protect the Traefik dashboard to anyone except myself
+    # Use with traefik.http.routers.myRouter.middlewares: "traefikAuth@file"
+    traefikAuth:
+      basicAuth:
+        #users:
+        #  - "admin:PASSWORD_HASHED"
+        usersFile: "/run/secrets/htpasswd" #be sure to mount dokcer secret through docker-compose.yml
+        realm: "Traefik 2 Basic Auth"  
+
+    # traefik-bouncer is a service that allows you to use the OAuth2 protocol to protect your services
+    # Use with traefik.http.routers.myRouter.middlewares: "traefik-bouncer@file"
+    traefik-bouncer:
+        forwardAuth:
+          address: "http://traefik-bouncer:8080/api/v1/forwardAuth" # Make sure you have the traefik-bouncer service in your docker-compose.yml
+          trustForwardHeader: true     
+
+    # oauth is a service that allows to use the OAuth2 protocol to protect your services
+    # Use with traefik.http.routers.myRouter.middlewares: "oauth@file"
+    traefik-oauth:
+      forwardAuth:
+        address: "http://oauth:4181" # Make sure you have the OAuth service in docker-compose.yml
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "X-Forwarded-User" 
+
+    # oauth-external is a service that allows to use the OAuth2 protocol to protect your services          
+    # Use with traefik.http.routers.myRouter.middlewares: "oauth-external@file"
+    oauth-external:
+      forwardAuth:
+        address: "https://oauth.(`${DOMAIN}`)"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "X-Forwarded-User"
+    
+    # authelia is a service that allows to use the OAuth2 protocol to protect your services
+    # Use with traefik.http.routers.myRouter.middlewares: "authelia@file"
+    authelia:
+      forwardAuth:
+        address: "http://authelia:9091/api/verify?rd=https://authelia.(`${DOMAIN}`)"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "Remote-User"
+          - "Remote-Groups"
+    
+    ################## CHAINS #########################
+
+    # Recommended default middleware for most of the services
+    # Use with traefik.http.routers.myRouter.middlewares: "default@file"
+    # Equivalent of traefik.http.routers.myRouter.middlewares: "requestRateLimit@file,default-security-headers@file,https-redirectscheme@file,docker config create traefik.yml.$(date +%F) traefik.ymlgzip@file"
+    default:
+      chain:
+        middlewares:
+          - requestRateLimit
+          - default-security-headers
+          - https-redirectscheme
+          - gzip 
+    
+    # Use with traefik.http.routers.myRouter.middlewares: "default-crowdsec@file"
+    # Equivalent of traefik.http.routers.myRouter.middlewares: "traefik-bouncer@file,requestRateLimit@file,default-security-headers@file,https-redirectscheme@file,gzip@file"
+    default-crowdsec:
+      chain:
+        middlewares:
+          - traefik-bouncer 
+          - requestRateLimit
+          - default-security-headers
+          - https-redirectscheme
+          - gzip           
+    
+    ################## OPTIONS #########################
+
+    requestRateLimit:
+      rateLimit:
+        average: 100
+        burst: 50      
+
+    https-redirectscheme:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+
+    # Add automatically some security headers
+    # Use with traefik.http.routers.myRouter.middlewares: "default-security-headers@file"
+    default-security-headers:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - OPTIONS
+          - PUT
+        accessControlMaxAge: 100
+        hostsProxyHeaders:
+          - "X-Forwarded-Host"
+        stsSeconds: 63072000                              # Set the max-age of the Strict-Transport-Security header (63072000 = 2 years)
+        stsIncludeSubdomains: true                        # Add includeSubdomains to the Strict-Transport-Security header
+        stsPreload: true                                  # Add preload flag appended to the Strict-Transport-Security header
+        sslRedirect: true                                 # Allow only https requests
+        forceSTSHeader: true                              # Add the Strict-Transport-Security header even when the connection is HTTP
+        customFrameOptionsValue: SAMEORIGIN               # X-Frame-Options=SAMEORIGIN    https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options
+        contentTypeNosniff: true                          # X-Content-Type-Options=nosniff
+        browserXssFilter: true                            # X-XSS-Protection=1; mode=block
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), vr=()"
+        frameDeny: true                                   # X-Frame-Options=deny       
+        customResponseHeaders:
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex," # disable search engines from indexing home server
+          server: "" # hide server info from visitors
+
+
+
+    # Enables the GZIP compression (https://docs.traefik.io/middlewares/compress/)
+    #   if the response body is larger than 1400 bytes
+    #   if the Accept-Encoding request header contains gzip
+    #   if the response is not already compressed (Content-Encoding is not set)
+    # Use with traefik.http.routers.myRouter.middlewares: "gzip@file"
+    gzip:
+      compress: {}
+     
+    # https://stackoverflow.com/questions/49717670/how-to-config-upload-body-size-restriction-in-traefik
+    sizeRestriction:
+      buffering:
+        maxResponseBodyBytes: 2000000
+        maxRequestBodyBytes: 10485760  
+        memRequestBodyBytes: 2097152  
+        memResponseBodyBytes: 2097152
+        retryExpression: "IsNetworkError() && Attempts() <= 2"  
+    
+
+################################ TLS configuration ################################
+
+# See https://doc.traefik.io/traefik/https/tls/
+tls:
+  options:
+    # To use with the label "traefik.http.routers.myrouter.tls.options=modern@file"
+    modern:
+      minVersion: "VersionTLS13"                          # Minimum TLS Version
+      sniStrict: true                                     # Strict SNI Checking
+    
+    # To use with the label "traefik.http.routers.myrouter.tls.options=intermediate@file"
+    intermediate:
+      cipherSuites:
+        - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
+        - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+        - "TLS_AES_128_GCM_SHA256"
+        - "TLS_AES_256_GCM_SHA384"
+        - "TLS_CHACHA20_POLY1305_SHA256"
+        - "TLS_FALLBACK_SCSV" # Client is doing version fallback. See RFC 7507
+      curvePreferences:
+        - CurveP521
+        - CurveP384
+      minVersion: "VersionTLS12"                          # Minimum TLS Version
+      sniStrict: true                                     # Strict SNI Checking
+    
+    # To use with the label "traefik.http.routers.myrouter.tls.options=old@file"
+    old:
+      cipherSuites:
+        - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
+        - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+        - "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256"
+        - "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+        - "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"
+        - "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"
+        - "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
+        - "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"
+        - "TLS_RSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_RSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_RSA_WITH_AES_128_CBC_SHA256"
+        - "TLS_RSA_WITH_AES_128_CBC_SHA"
+        - "TLS_RSA_WITH_AES_256_CBC_SHA"
+        - "TLS_RSA_WITH_3DES_EDE_CBC_SHA"
+      minVersion: "TLSv1"                                 # Minimum TLS Version
+      sniStrict: true                                     # Strict SNI Checking

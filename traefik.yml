@@ -1,0 +1,105 @@
+# Traefik static configuration file (/etc/traefik/traefik.yml)
+# See https://doc.traefik.io/traefik/getting-started/configuration-overview/#the-static-configuration
+# and https://doc.traefik.io/traefik/reference/static-configuration/cli/
+
+api:
+  dashboard: true                             # Enable the dashboard
+  insecure: false # Disable API over HTTP     # Disable API over HTTP 
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"   # Listen to the UNIX Docker socket
+    # endpoint: "tcp://socket-proxy:2375"     # Use Docker Socket Proxy instead for improved security
+    exposedByDefault: false                   # Only expose container that are explicitly enabled (using label traefik.enabled)
+    network: "t2_proxy"                       # Default network to use for connections to all containers.
+    swarmMode: true                           # Activates the Swarm Mode (instead of standalone Docker).
+    swarmModeRefreshSeconds: 15s              # Defines the polling interval (in seconds) in Swarm Mode.
+    watch: true                               # Watch Docker Swarm events
+  file:
+    filename: "/etc/traefik/config.yml"       # Link to the dynamic configuration
+    watch: true                               # Watch for modifications
+  providersThrottleDuration: 10s              # Configuration reload frequency
+
+global:
+  checkNewVersion: true                       # Periodically check if a new version has been released.
+  sendAnonymousUsage: false                   # Periodically send anonymous usage statistics.
+
+metrics:                                      # The 'metrics' section enables metrics collection for observing the performance of Traefik.     
+  prometheus:                                 # The 'prometheus' subsection specifies that the metrics should be collected in Prometheus format.
+    buckets:                                  # 'buckets' are used by Prometheus for histogram metrics. These values represent the upper bounds of latency (in seconds) for each histogram bucket.
+      - 0.1                                   # This specific configuration specifies four buckets, meaning that the latencies will be divided into four ranges: less than 0.1s, 0.1-0.3s, 0.3-1.2s, and 1.2-5.0s.
+      - 0.3
+      - 1.2
+      - 5.0
+
+ping:
+  entryPoint: ping                            # Entry point to use for pings
+
+log:
+  level: DEBUG                                 # (Default: error) DEBUG, INFO, WARN, ERROR, FATAL, PANIC
+  filePath: "/etc/traefik/traefik.log"        # Log file path
+  format: common                              # Log format
+
+accessLog:                                    # The 'accessLog' section configures logging of incoming HTTP requests in Traefik.
+  filePath: "/etc/traefik/access.log"         # Log file path
+  bufferingSize: 100                          # Configuring a buffer of 100 lines
+  filters:                                    # 'filters' allow you to exclude certain requests from the access log. In this case, the 'statusCodes' filter excludes requests that return HTTP status codes in the ranges 204-299, 400-499, and 500-599.
+    statusCodes:
+     - 204-299
+     - 400-499
+     - 500-599
+
+# Certificate Resolvers are responsible for retrieving certificates from an ACME server
+# See https://doc.traefik.io/traefik/https/acme/#certificate-resolvers
+certificatesResolvers:                        # The 'certificatesResolvers' section configures how Traefik obtains SSL/TLS certificates for your services.
+  letsEncrypt:                                # Each resolver (like 'letsEncrypt' here) is named and configured independently.
+    acme:                                     # The 'acme' subsection is for configuring integration with an ACME-compatible certificate authority like Let's Encrypt.
+      email: "your@email.com"                  # 'email' is used to register with the certificate authority.
+      caServer: "https://acme-staging-v02.api.letsencrypt.org/directory" # 'caServer' is the URL of the certificate authority's ACME server. The staging server is used here to avoid rate limits during testing.      
+      storage: "/etc/traefik/acme/acme.json"  # File or key used for certificates storage
+      tlsChallenge:                           # Whether or not to use TLS-ALPN-01 to solve challenges (default: false)
+        additionalProperties: false
+      dnsChallenge:                           # 'dnsChallenge' configures Traefik to use DNS challenges to prove domain control. This requires API credentials for your DNS provider.
+        provider: cloudflare
+        delayBeforeCheck: 90d                 # 'delayBeforeCheck' specifies the delay before checking for the propagation of the DNS challenge record. 
+        resolvers:                            # 'resolvers' are the DNS resolvers to use when checking for the propagation of the DNS challenge record.
+          - "1.1.1.1:53"
+          - "1.0.0.1:53"
+
+entryPoints:
+  ping:
+    address: ":8082"                          # Create the ping entrypoint on port 8080
+  http:
+    address: ":80"                            # Create the HTTP entrypoint on port 80
+  https:
+    address: ":443"                           # Create the HTTPS entrypoint on port 443
+    http:
+      tls:
+        
+        certresolver: dns-cloudflare
+        domains:
+          - main: (`${DOMAIN-NAME}`)
+            sans: 
+              - "*.(`${DOMAIN-NAME}`)"
+              
+    forwardedHeaders:                         
+      trustedIPs:
+            - "173.245.48.0/20"               # Allow these IPs to set the X-Forwarded-* headers - Cloudflare IPs: https://www.cloudflare.com/ips/
+            - "103.21.244.0/22"
+            - "103.22.200.0/22"
+            - "103.31.4.0/22"
+            - "141.101.64.0/18"
+            - "108.162.192.0/18"
+            - "190.93.240.0/20"
+            - "188.114.96.0/20"
+            - "197.234.240.0/22"
+            - "198.41.128.0/17"
+            - "162.158.0.0/15"
+            - "104.16.0.0/13"
+            - "104.24.0.0/14"
+            - "172.64.0.0/13"
+            - "131.0.72.0/22"
+            - "127.0.0.1/32"                  # Make sure that your local IP address (host network, docker network, t2_proxy, etc.) are covered in the ranges defined  
+            - "10.0.0.0/8"
+            - "192.168.0.0/16"
+            - "172.16.0.0/12"
